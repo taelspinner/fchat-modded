@@ -37,7 +37,9 @@
                         <label for="advanced"><input type="checkbox" id="advanced" v-model="showAdvanced"/> {{l('login.advanced')}}</label>
                     </div>
                     <div class="form-group">
-                        <label for="save"><input type="checkbox" id="save" v-model="saveLogin"/> {{l('login.save')}}</label>
+                        <label for="save" :title="canSaveLogin ? '' : l('login.saveUnavailable')">
+                            <input type="checkbox" id="save" v-model="saveLogin" :disabled="!canSaveLogin"/> {{l('login.save')}}
+                        </label>
                     </div>
                     <div class="form-group" style="margin:0;text-align:right">
                         <button class="btn btn-primary" @click="login" :disabled="loggingIn">
@@ -77,12 +79,12 @@
     import {Component, Hook} from '@f-list/vue-ts';
     import Axios from 'axios';
     import * as electron from 'electron';
+    import * as remote from '@electron/remote';
     import log from 'electron-log'; //tslint:disable-line:match-default-export-name
     import * as fs from 'fs';
     import * as path from 'path';
     import * as qs from 'querystring';
     import Raven from 'raven-js';
-    //import {promisify} from 'util';
     import Vue from 'vue';
     import Chat from '../chat/Chat.vue';
     import {getKey, Settings} from '../chat/common';
@@ -94,29 +96,16 @@
     import {SimpleCharacter} from '../interfaces';
     import {Keys} from '../keys';
     import CharacterPage from '../site/character_page/character_page.vue';
-    import {defaultHost, GeneralSettings, nativeRequire} from './common';
+    import {defaultHost, GeneralSettings} from './common';
     import {fixLogs} from './filesystem';
     import * as SlimcatImporter from './importer';
+    import {SecureStore} from './secure-store';
 
-    const webContents = electron.remote.getCurrentWebContents();
-    const parent = electron.remote.getCurrentWindow().webContents;
-
-    log.info('About to load keytar');
-    /*tslint:disable:no-any*///because this is hacky
-    const keyStore = nativeRequire<
-      {
-        getPassword(service: string, account: string): Promise<string>
-        setPassword(service: string, account: string, password: string): Promise<void>
-        deletePassword(service: string, account: string): Promise<void>
-        findCredentials(service: string): Promise<{ account: string, password: string }>
-        findPassword(service: string): Promise<string>
-        [key: string]: (...args: any[]) => Promise<any>
-      }
-    >('keytar/build/Release/keytar.node');
-
-    //for(const key in keyStore) keyStore[key] = promisify(<(...args: any[]) => any>keyStore[key].bind(keyStore, 'fchat'));
-    //tslint:enable
-    log.info('Loaded keytar.');
+    const webContents = remote.getCurrentWebContents();
+    // tslint:disable-next-line:no-require-imports no-submodule-imports
+    require('@electron/remote/main').enable(webContents);
+    const parent = remote.getCurrentWindow().webContents;
+    const keyStore = new SecureStore('fchat-accounts', remote);
 
     @Component({
         components: {chat: Chat, modal: Modal, characterPage: CharacterPage, logs: Logs}
@@ -124,6 +113,7 @@
     export default class Index extends Vue {
         showAdvanced = false;
         saveLogin = false;
+        canSaveLogin = keyStore.isAvailable();
         loggingIn = false;
         password = '';
         character?: string;
@@ -139,15 +129,16 @@
 
         @Hook('created')
         created(): void {
-            if(this.settings.account.length > 0) this.saveLogin = true;
-			keyStore.getPassword('f-list.net', this.settings.account)
-                .then((value: string) => this.password = value, (err: Error) => this.error = err.message);
+            if(this.settings.account.length > 0) this.saveLogin = this.canSaveLogin;
+            if(!this.canSaveLogin) log.warn('OS encryption is unavailable; passwords will not be saved.');
+            keyStore.getPassword('f-list.net', this.settings.account)
+                .then((value: string | null) => this.password = value || '', (err: Error) => this.error = err.message);
 
             Vue.set(core.state, 'generalSettings', this.settings);
 
             electron.ipcRenderer.on('settings',
-                (_: Event, settings: GeneralSettings) => core.state.generalSettings = this.settings = settings);
-            electron.ipcRenderer.on('open-profile', (_: Event, name: string) => {
+                (_event: Electron.IpcRendererEvent, settings: GeneralSettings) => core.state.generalSettings = this.settings = settings);
+            electron.ipcRenderer.on('open-profile', (_event: Electron.IpcRendererEvent, name: string) => {
                 const profileViewer = <Modal>this.$refs['profileViewer'];
                 this.profileName = name;
                 profileViewer.show();
@@ -179,7 +170,8 @@
                 }
                 if(this.saveLogin) {
                     electron.ipcRenderer.send('save-login', this.settings.account, this.settings.host);
-                    await keyStore.setPassword('f-list.net', this.settings.account, this.password);
+                    if(!await keyStore.setPassword('f-list.net', this.settings.account, this.password))
+                        this.error = l('login.saveUnavailable');
                 }
                 Socket.host = this.settings.host;
 
@@ -256,7 +248,7 @@
         }
 
         async openProfileInBrowser(): Promise<void> {
-            return electron.remote.shell.openExternal(`https://www.f-list.net/c/${this.profileName}`);
+            return remote.shell.openExternal(`https://www.f-list.net/c/${this.profileName}`);
         }
 
         get styling(): string {

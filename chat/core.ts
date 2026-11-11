@@ -64,7 +64,7 @@ const data = {
         Vue.set(vue, module, subState);
         (<VueState[K]>data[module]) = subState;
     },
-    watch<T>(getter: (this: VueState) => T, callback: WatchHandler<T>): void {
+    watch<T>(getter: (this: VueState) => T, callback: Exclude<WatchHandler<T>, string>): void {
         vue.$watch(getter, callback);
     },
     async reloadSettings(): Promise<void> {
@@ -86,10 +86,10 @@ export function init(this: void, connection: Connection, logsClass: new() => Log
     data.register('characters', Characters(connection));
     data.register('channels', Channels(connection, core.characters));
     data.register('conversations', Conversations());
-	data.watch(() => state.hiddenUsers, async(newValue) => {
+    data.watch(() => state.hiddenUsers, async(newValue: string[]) => {
         if(data.settingsStore !== undefined) await data.settingsStore.set('hiddenUsers', newValue);
     });
-	data.watch(() => state.silencedUsers, async(newValue) => {
+    data.watch(() => state.hiddenUsers, async(newValue: string[]) => {
         if(data.settingsStore !== undefined) await data.settingsStore.set('silencedUsers', newValue);
     });
     connection.onEvent('connecting', async() => {
@@ -109,7 +109,7 @@ export interface Core {
     readonly bbCodeParser: BBCodeParser
     readonly notifications: Notifications
     readonly adCoordinator: AdCoordinatorGuest
-    watch<T>(getter: (this: VueState) => T, callback: WatchHandler<T>): void
+    watch<T>(getter: (this: VueState) => T, callback: Exclude<WatchHandler<T>, string>): void
 }
 
 const core = <Core><any>data; /*tslint:disable-line:no-any*///hack
