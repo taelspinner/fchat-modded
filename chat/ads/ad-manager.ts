@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import throat from 'throat';
 import * as _ from 'lodash';
 

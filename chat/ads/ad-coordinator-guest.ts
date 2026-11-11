@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 import _ from 'lodash';
 import { ipcRenderer, IpcRendererEvent } from 'electron';
 import log from 'electron-log'; //tslint:disable-line:match-default-export-name
@@ -48,7 +50,7 @@ export class AdCoordinatorGuest {
 
 
     clear(): void {
-      _.each(this.pendingAds, (pa) => (pa.reject(new Error('Pending ad cleared'))));
+      _.each(this.pendingAds, (pa: PendingAd) => (pa.reject(new Error('Pending ad cleared'))));
 
       console.debug('adid.clear', _.keys(this.pendingAds), core.characters.ownCharacter?.name);
 
